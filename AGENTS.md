@@ -2,23 +2,24 @@
 
 Guidance for humans and coding agents working on PiUi.
 
-## `/piui` and Streamlit
+## `/piui` and the local web server
 
-- **`extensions/piui.ts`** spawns Streamlit with **`--server.headless false`** so Streamlit can **open the default browser** when the server starts (first launch from Pi).
+- **`extensions/piui.ts`** spawns **`node dist/piui-server.mjs`** (same Node as Pi) on **`127.0.0.1`** using **`PIUI_PORT`** (default **`8502`**).
 - A **second** **`/piui`** while the server is already up uses **`open`** (macOS) or **`xdg-open`** (Linux) via **`pi.exec`** instead of spawning again.
-- **Do not** flip **`--server.headless`** to **`true`** without an intentional UX change and updates to **README.md** (and this file).
+- The server serves the built **Svelte** UI from **`dist/web`** and JSON APIs under **`/api/*`**.
 
-## Interpreter and venv
+## Build output
 
-- Python: **`venv/bin/python`** in the package root when present (created by **`npm postinstall`**), else **`python3`**.
-- Pi installs the git clone under **`~/.pi/agent/git/...`**; the venv must exist **there**, not only in a separate dev checkout.
+- **`npm install`** runs **`postinstall`** → **`scripts/postinstall-build.sh`**, which runs **`npm run build`** to produce **`dist/piui-server.mjs`** and **`dist/web/`**.
+- Pi installs the git clone under **`~/.pi/agent/git/...`**; those **`dist/`** artifacts must exist **there**, not only in a separate dev checkout.
 
 ## Lifecycle
 
-- **`session_shutdown`** with **`reason === "quit"`** terminates the tracked Streamlit PID so the port is not left bound after exiting Pi.
+- **`session_shutdown`** with **`reason === "quit"`** terminates the tracked server PID so the port is not left bound after exiting Pi.
 
 ## Repository layout
 
-- [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh).
-- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns or reuses Streamlit, browser **`open`** / **`xdg-open`** when the URL already responds (see **§ `/piui` and Streamlit** above).
-- [`streamlit_app/app.py`](streamlit_app/app.py) — Streamlit UI: session discovery and transcript.
+- [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-build.sh`](scripts/postinstall-build.sh).
+- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns or reuses the PiUi server, and **always** opens the URL with **`open`** / **`xdg-open`** (after a short **`/api/health`** wait when it had to spawn).
+- [`server/`](server/) — Node server: **`main.ts`** (HTTP + static), **`session.ts`** / **`viewModel.ts`** (JSONL + transcript shaping).
+- [`web/`](web/) — Svelte 5 + Vite frontend.
