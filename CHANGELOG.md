@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.2] - 2026-05-12
+
+### Added
+
+- **`npm` `postinstall`**: [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh) creates **`.venv`** in the package root (when missing) and runs **`pip install -r requirements.txt`**, so Pi’s post-clone **`npm install`** sets up Python for **`/piui`**.
+
+### Removed
+
+- **`PIUI_PYTHON`** override; interpreter is **`<package>/.venv/bin/python`** when present, else **`python3`**.
+
+### Changed
+
+- [`extensions/piui.ts`](extensions/piui.ts): simplified **`resolvePython`**; **warning** toast when **`.venv`** is missing (hint to **`npm install`** / **`pi update`**).
+
+### Documentation
+
+- [`README.md`](README.md): Pi-managed clone vs dev checkout, **`postinstall`** behavior, **`python3`** + network requirements, troubleshooting without **`PIUI_PYTHON`**.
+
+## [0.1.1] - 2026-05-12
+
+### Fixed
+
+- **`/piui`**: bind Streamlit with **`--server.address 127.0.0.1`** so the URL matches the listener; capture **stderr** and show an **error** toast if the process exits non-zero (e.g. missing `streamlit` module instead of a silent failure with `ERR_CONNECTION_REFUSED` in the browser).
+
+### Documentation
+
+- [`README.md`](README.md): troubleshooting row for **`ERR_CONNECTION_REFUSED`**.
+
 ## [0.1.0] - 2026-05-12
 
 ### Added
@@ -14,8 +42,8 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Launcher uses **`python -m streamlit run …`** instead of the `streamlit` CLI on `PATH`, so installs inside a venv work when Pi’s environment does not expose `streamlit`.
-- Interpreter resolution (first match wins): **`PIUI_PYTHON`**, else **`<package>/.venv/bin/python`** if present, else **`python3`**.
+- Interpreter resolution: optional env override for Python (removed in v0.1.2), else **`<package>/.venv/bin/python`** if present, else **`python3`**.
 
 ### Documentation
 
-- [`README.md`](README.md): install flow for Pi, recommended `.venv` setup, `PIUI_PYTHON` and `PIUI_PORT`, troubleshooting for interpreter and missing `streamlit` module.
+- [`README.md`](README.md): install flow for Pi, recommended `.venv` setup, `PIUI_PORT`, troubleshooting for interpreter and missing `streamlit` module.

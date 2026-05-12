@@ -5,14 +5,16 @@ Pi package that registers **`/piui`** in [Pi](https://github.com/earendil-works/
 ## Requirements
 
 - **Pi** with extension/package support (see Pi docs for your version).
-- **Python 3.10+** on Mac or Linux, with **Streamlit** installed **into the interpreter PiUi chooses** (see below). PiUi runs `python -m streamlit`, not the `streamlit` shell script on `PATH`.
+- **Mac or Linux**, **`python3`** on the `PATH` used when Pi runs **`npm install`** on this package (see Pi’s package docs).
+- **Network access** during **`npm install` / `pi update`** so **`pip install -r requirements.txt`** can run inside the package **`postinstall`** hook.
+
+PiUi runs **`python -m streamlit`**, not the `streamlit` executable on Pi’s `PATH`.
 
 ## Install (Pi)
 
 From a clone of this repo:
 
 ```bash
-# git clone
 cd PiUi
 pi install .
 ```
@@ -25,7 +27,14 @@ pi install git:github.com/PlebeiusGaragicus/piui
 
 Use `pi install … -l` for a **project-local** install (writes `.pi/settings.json`).
 
-`pi install` runs **`npm install`** in the cloned package. This repo keeps npm `dependencies` empty; Pi supplies `@earendil-works/pi-coding-agent` at runtime for the extension.
+`pi install` runs **`npm install`** in the cloned package. **`npm install`** triggers **`postinstall`**, which creates **`.venv/`** next to `package.json` in **that** directory and installs **`requirements.txt`** into it. Pi supplies `@earendil-works/pi-coding-agent` at runtime for the extension.
+
+### Which directory is that?
+
+- **`pi install git:…`**: Pi clones under something like **`~/.pi/agent/git/<host>/<path-to-repo>/`** (exact path depends on the URL). That clone—not necessarily your separate dev checkout—is where **`.venv`** must exist.
+- **`pi install /absolute/path/to/PiUi`**: that path **is** the package root; **`postinstall`** writes **`.venv`** there.
+
+Use **`pi list`** (and Pi docs) to see configured packages and resolve the install path if unsure.
 
 To try without persisting:
 
@@ -33,29 +42,11 @@ To try without persisting:
 pi -e /absolute/path/to/PiUi
 ```
 
-## Install (Python)
+## Python / venv (automatic)
 
-**Recommended:** create a venv **inside the PiUi package** so `/piui` picks it automatically (no need for `streamlit` on Pi’s `PATH`):
+You do **not** need to create **`.venv`** by hand for the Pi-managed install: **`postinstall`** does it when **`npm install`** runs.
 
-```bash
-cd /path/to/PiUi
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-Or with uv:
-
-```bash
-cd /path/to/PiUi
-uv venv .venv
-uv pip install -r requirements.txt --python .venv/bin/python
-```
-
-If you skip `.venv`, PiUi falls back to **`python3`** on the process `PATH`; install Streamlit there, e.g. `python3 -m pip install -r requirements.txt`.
-
-### Override interpreter
-
-Set **`PIUI_PYTHON`** to an absolute path (e.g. `/path/to/venv/bin/python`) **before starting Pi**, when Streamlit is installed in another environment.
+If you use **`npm install --ignore-scripts`** or postinstall failed, run **`npm install`** again in the **package root** (or **`pi update`** for this package) so **`postinstall`** can finish.
 
 ## Use
 
@@ -71,17 +62,20 @@ Set **`PIUI_PORT`** before starting Pi (or in your shell profile) to change the 
 
 | Issue | What to do |
 |--------|------------|
-| Browser **`ERR_CONNECTION_REFUSED`** | Streamlit never bound (often exited on startup). Pi should show a follow-up **error** with exit code and **stderr** (e.g. `No module named streamlit`). Fix deps with the **same** interpreter shown in the first toast: `cd` to PiUi then `<that-python> -m pip install -r requirements.txt`. Wait a few seconds after `/piui` before opening the link. |
-| Could not run Python interpreter / `ENOENT` | Ensure `python3` exists for Pi’s process, or set **`PIUI_PYTHON`**, or add **`.venv/bin/python`** under the PiUi package. |
-| Nothing opens / page fails (no Pi error) | If you only see the “starting” toast and no second error, check the same interpreter: `<python> -m pip show streamlit` from a terminal. Install deps with **the same** interpreter PiUi uses: `"$PIUI_PYTHON" -m pip install -r requirements.txt` or `.venv/bin/python -m pip install -r requirements.txt` in the PiUi directory. |
-| Port already in use | Set `PIUI_PORT` to a free port and run `/piui` again. |
-| Empty session list | Confirm Pi has created sessions under `~/.pi/agent/sessions/` (nested `*.jsonl` files). |
-| Extension not listed | Confirm `pi install` succeeded, run `/reload`, and check `pi list` / settings `packages` include this package. |
+| Warning: no `.venv` at … | **`npm install`** did not run or **`postinstall`** failed. In that package directory run **`npm install`**, or **`pi update`** for the package; ensure **`python3`** is on PATH for that process and the machine has network for **pip**. |
+| Browser **`ERR_CONNECTION_REFUSED`** | Streamlit never bound (often exited on startup). Pi should show a follow-up **error** with exit code and **stderr**. Wait a few seconds after `/piui` before opening the link. |
+| Could not run Python interpreter / `ENOENT` | Install **`python3`** where Pi/npm can see it, or fix **`.venv`** with **`npm install`** in the package root. |
+| **`npm install` / postinstall errors** | Read the log: missing **`python3`**, pip/network blocked, or **`requirements.txt`** issue. Fix and re-run **`npm install`** in the Pi-managed clone. |
+| Nothing opens / no stderr toast | Run **`<package>/.venv/bin/python -m pip show streamlit`** from a terminal using the same paths. |
+| Port already in use | Set **`PIUI_PORT`** to a free port and run **`/piui`** again. |
+| Empty session list | Confirm Pi has created sessions under **`~/.pi/agent/sessions/`** (nested **`*.jsonl`** files). |
+| Extension not listed | Confirm **`pi install`** succeeded, run **`/reload`**, and check **`pi list`** / settings **`packages`**. |
 
 ## Layout
 
-- `extensions/piui.ts` — registers `/piui`, spawns detached `python -m streamlit run …`.
-- `streamlit_app/app.py` — lists and previews session JSONL files.
+- [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh).
+- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns detached **`python -m streamlit run …`** (prefers **`.venv/bin/python`**).
+- [`streamlit_app/app.py`](streamlit_app/app.py) — lists and previews session JSONL files.
 
 ## License
 
