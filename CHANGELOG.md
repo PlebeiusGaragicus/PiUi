@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.7] - 2026-05-12
+
+### Changed
+
+- [`streamlit_app/app.py`](streamlit_app/app.py): **Directory** and **session file** pickers use **full-width sidebar and main buttons** (`type="primary"` when selected, `type="secondary"` otherwise) instead of **`st.radio`**, for clearer layout and one-click selection.
+
+### Fixed
+
+- **Double-click to change selection** on directory and session radios (see [#1](https://github.com/PlebeiusGaragicus/PiUi/issues/1)): selection is driven by **`st.session_state`** and stable **`key`s** (`piui_dir_*`, `piui_file_{dir}_*`) without conflicting **`index=`** wiring; changing directory clears the stored file label so the file list stays consistent.
+
 ## [0.1.6] - 2026-05-12
 
 ### Changed

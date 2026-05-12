@@ -44,11 +44,49 @@ def discover_jsonl_by_directory() -> dict[str, list[Path]]:
     return buckets
 
 
-def format_file_radio_label(p: Path) -> str:
+def format_session_file_label(p: Path) -> str:
     stt = p.stat()
     mtime = datetime.fromtimestamp(stt.st_mtime).strftime("%Y-%m-%d %H:%M")
     kb = round(stt.st_size / 1024, 1)
     return f"{p.name} · {mtime} · {kb} KiB"
+
+
+def render_directory_picker(dir_names: list[str]) -> None:
+    """Sidebar buttons for Pi cwd bucket; updates ``piui_dir`` and clears file choice when it changes."""
+    st.sidebar.caption("Working directory (Pi cwd bucket)")
+    for i, name in enumerate(dir_names):
+        current = st.session_state["piui_dir"]
+        selected = name == current
+        clicked = st.sidebar.button(
+            name,
+            key=f"piui_dir_{i}",
+            type="primary" if selected else "secondary",
+            use_container_width=True,
+        )
+        if clicked and name != current:
+            st.session_state["piui_dir"] = name
+            st.session_state.pop("piui_file_label", None)
+
+
+def render_session_file_picker(labels: list[str], dir_key: int) -> None:
+    """Full-width buttons for session ``.jsonl``; updates ``piui_file_label``."""
+    if len(labels) == 1:
+        st.session_state["piui_file_label"] = labels[0]
+        st.caption(labels[0])
+        return
+    st.caption("Choose a session file")
+    if st.session_state.get("piui_file_label") not in labels:
+        st.session_state["piui_file_label"] = labels[0]
+    for i, label in enumerate(labels):
+        cur = st.session_state["piui_file_label"]
+        selected = label == cur
+        if st.button(
+            label,
+            key=f"piui_file_{dir_key}_{i}",
+            type="primary" if selected else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["piui_file_label"] = label
 
 
 def load_jsonl_objects(path: Path) -> tuple[list[tuple[int, dict[str, Any] | None]], int]:
@@ -501,38 +539,17 @@ def main() -> None:
         st.session_state["piui_dir"] = dir_names[0]
 
     st.sidebar.header("Directory")
-    dir_choice = st.sidebar.radio(
-        "Working directory (Pi cwd bucket)",
-        options=dir_names,
-        index=dir_names.index(st.session_state["piui_dir"]),
-        label_visibility="collapsed",
-    )
-    st.session_state["piui_dir"] = dir_choice
+    render_directory_picker(dir_names)
 
+    dir_choice = st.session_state["piui_dir"]
     files = buckets[dir_choice]
-    labels = [format_file_radio_label(p) for p in files]
+    labels = [format_session_file_label(p) for p in files]
     label_to_path = dict(zip(labels, files))
 
-    if st.session_state.get("_piui_dir_last") != dir_choice:
-        st.session_state["_piui_dir_last"] = dir_choice
-        st.session_state.pop("piui_file_label", None)
-
     st.subheader("Session file")
-    if len(labels) == 1:
-        chosen_label = labels[0]
-        st.caption(chosen_label)
-    else:
-        default_label = st.session_state.get("piui_file_label", labels[0])
-        if default_label not in label_to_path:
-            default_label = labels[0]
-        idx = labels.index(default_label)
-        chosen_label = st.radio(
-            "Open a session",
-            options=labels,
-            index=idx,
-            label_visibility="collapsed",
-        )
-    st.session_state["piui_file_label"] = chosen_label
+    dir_key = dir_names.index(dir_choice)
+    render_session_file_picker(labels, dir_key)
+    chosen_label = st.session_state["piui_file_label"]
     selected_path = label_to_path[chosen_label]
 
     st.divider()
