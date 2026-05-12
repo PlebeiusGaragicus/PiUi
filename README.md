@@ -12,31 +12,48 @@ PiUi runs **`python -m streamlit`**, not the `streamlit` executable on Pi’s `P
 
 ## Install (Pi)
 
-From a clone of this repo:
-
-```bash
-cd PiUi
-pi install .
-```
-
-Or from git (example):
+**Recommended:** install from git so Pi owns a managed clone and runs **`npm install`** there:
 
 ```bash
 pi install git:github.com/PlebeiusGaragicus/piui
 ```
 
-Use `pi install … -l` for a **project-local** install (writes `.pi/settings.json`).
+Use **`pi install … -l`** for a **project-local** install (writes **`.pi/settings.json`**).
 
-`pi install` runs **`npm install`** in the cloned package. **`npm install`** triggers **`postinstall`**, which creates **`venv/`** next to `package.json` in **that** directory and installs **`requirements.txt`** into it. Pi supplies `@earendil-works/pi-coding-agent` at runtime for the extension.
+For **`pi install git:…`**, Pi typically places the package under something like **`~/.pi/agent/git/<host>/<path-to-repo>/`** (exact path depends on the URL). Pi runs **`npm install`** in that directory. **`npm install`** triggers **`postinstall`**, which creates **`venv/`** next to **`package.json`** and installs **`requirements.txt`**. Pi supplies **`@earendil-works/pi-coding-agent`** at runtime for the extension. That managed clone—not a separate checkout you only edit by hand—is where **`venv/`** must exist unless you use a path install (see below).
 
-### Which directory is that?
-
-- **`pi install git:…`**: Pi clones under something like **`~/.pi/agent/git/<host>/<path-to-repo>/`** (exact path depends on the URL). That clone—not necessarily your separate dev checkout—is where **`venv`** must exist.
-- **`pi install /absolute/path/to/PiUi`**: that path **is** the package root; **`postinstall`** writes **`venv/`** there.
+**Filesystem path installs** (**`pi install /absolute/path/to/PiUi`**, **`pi install .`**, etc.) are for **local development** only. Pi registers the package but **does not run `npm install`** for you; you must run it once in the package root so **`postinstall`** creates **`venv/`** — see [Local development](#local-development).
 
 Use **`pi list`** (and Pi docs) to see configured packages and resolve the install path if unsure.
 
-To try without persisting:
+## Local development
+
+Use a **path** install when you are editing PiUi in your own git clone and want Pi to load **`/piui`** from that directory.
+
+1. **Register the package with Pi** (example):
+
+   ```bash
+   pi install /absolute/path/to/PiUi
+   ```
+
+   Or from inside the repo: **`pi install .`**
+
+2. **Run `npm install` in that same directory** (the package root, next to **`package.json`**). Path installs do **not** run this automatically; without it there is no **`venv/`**, no Streamlit in the expected place, and **`/piui`** will warn or fail.
+
+3. **`npm install`** runs **`postinstall`** → **`scripts/postinstall-venv.sh`**, which creates **`venv/`** and uses **`pip`** to install **`requirements.txt`**.
+
+4. In Pi, run **`/reload`** (or restart Pi) so the extension is picked up.
+
+**Optional — Streamlit only (no Pi):** after **`venv/`** exists, you can iterate on the Python UI without **`/piui`**:
+
+```bash
+cd /absolute/path/to/PiUi
+./venv/bin/python -m streamlit run streamlit_app/app.py \
+  --server.headless false --server.address 127.0.0.1 --server.port 8502 \
+  --browser.gatherUsageStats false
+```
+
+**Try without persisting** a path (Pi still needs to load the extension; **`npm install`** in that tree applies as above):
 
 ```bash
 pi -e /absolute/path/to/PiUi
@@ -44,9 +61,9 @@ pi -e /absolute/path/to/PiUi
 
 ## Python / venv (automatic)
 
-You do **not** need to create **`venv`** by hand for the Pi-managed install: **`postinstall`** does it when **`npm install`** runs.
+You do **not** need to create **`venv/`** by hand once **`npm install`** has run successfully: **`postinstall`** creates it and installs Python deps.
 
-If you use **`npm install --ignore-scripts`** or postinstall failed, run **`npm install`** again in the **package root** (or **`pi update`** for this package) so **`postinstall`** can finish.
+If you use **`npm install --ignore-scripts`** or **`postinstall`** failed, run **`npm install`** again in the **package root** (or **`pi update`** for a **git**-installed package) so **`postinstall`** can finish. After a **path** install, running **`npm install`** manually is **required** the first time — see [Local development](#local-development).
 
 ## Use
 
@@ -66,7 +83,7 @@ Set **`PIUI_PORT`** before starting Pi (or in your shell profile) to change the 
 
 | Issue | What to do |
 |--------|------------|
-| Warning: no venv at … | **`npm install`** did not run or **`postinstall`** failed. In that package directory run **`npm install`**, or **`pi update`** for the package; ensure **`python3`** is on PATH for that process and the machine has network for **pip**. |
+| Warning: no venv at … | **`npm install`** did not run or **`postinstall`** failed. For a **path** install, run **`npm install`** once in the package root (Pi does not run it for you). For a **git** install, run **`npm install`** there or **`pi update`**; ensure **`python3`** is on PATH and the machine has network for **pip**. |
 | Browser **`ERR_CONNECTION_REFUSED`** | Streamlit never bound (often exited on startup). Pi should show a follow-up **error** with exit code and **stderr**. Wait a few seconds after `/piui` before opening the link. |
 | Could not run Python interpreter / `ENOENT` | Install **`python3`** where Pi/npm can see it, or fix **`venv`** with **`npm install`** in the package root. |
 | **`npm install` / postinstall errors** | Read the log: missing **`python3`**, pip/network blocked, or **`requirements.txt`** issue. Fix and re-run **`npm install`** in the Pi-managed clone. |
@@ -74,14 +91,3 @@ Set **`PIUI_PORT`** before starting Pi (or in your shell profile) to change the 
 | Port already in use | Often a leftover Streamlit before this change; quit Pi (PiUi now stops Streamlit on quit) or set **`PIUI_PORT`**. If something else is already serving PiUi’s URL, **`/piui`** may open that tab instead of starting a new server. |
 | Empty session list | Confirm Pi has created sessions under **`~/.pi/agent/sessions/`** (nested **`*.jsonl`** files). |
 | Extension not listed | Confirm **`pi install`** succeeded, run **`/reload`**, and check **`pi list`** / settings **`packages`**. |
-
-## Layout
-
-- [`AGENTS.md`](AGENTS.md) — conventions for contributors / agents (including Streamlit **headless** flag).
-- [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh).
-- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawn or reuse Streamlit, stop on Pi **quit**, open browser via **`open`** / **`xdg-open`** when the server is already listening.
-- [`streamlit_app/app.py`](streamlit_app/app.py) — lists and previews session JSONL files.
-
-## License
-
-MIT

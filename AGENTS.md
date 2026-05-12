@@ -16,3 +16,9 @@ Guidance for humans and coding agents working on PiUi.
 ## Lifecycle
 
 - **`session_shutdown`** with **`reason === "quit"`** terminates the tracked Streamlit PID so the port is not left bound after exiting Pi.
+
+## Repository layout
+
+- [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh).
+- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns or reuses Streamlit, browser **`open`** / **`xdg-open`** when the URL already responds (see **§ `/piui` and Streamlit** above).
+- [`streamlit_app/app.py`](streamlit_app/app.py) — Streamlit UI: session discovery and transcript.
