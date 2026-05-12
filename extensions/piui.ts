@@ -58,12 +58,58 @@ async function probeServer(url: string): Promise<boolean> {
 	}
 }
 
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+}
+
+/**
+ * Poll /api/health until it succeeds, the child exits non-zero, or timeout.
+ * If the child crashed but something else is already listening, still returns true when probe succeeds.
+ */
+async function waitForServerListening(
+	url: string,
+	child: ReturnType<typeof spawn>,
+	timeoutMs: number,
+	intervalMs: number,
+): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const code = child.exitCode;
+		if (code !== null && code !== 0) {
+			return await probeServer(url);
+		}
+		if (await probeServer(url)) {
+			return true;
+		}
+		await delay(intervalMs);
+	}
+	return await probeServer(url);
+}
+
 async function openUrlInBrowser(pi: ExtensionAPI, url: string): Promise<void> {
 	if (process.platform === "win32") {
 		return;
 	}
 	const cmd = process.platform === "darwin" ? "open" : "xdg-open";
 	await pi.exec(cmd, [url], { cwd: packageRoot, timeout: 15_000 });
+}
+
+/** Always try to open a browser tab; toast on success or browser-launch failure. */
+async function openPiUiTab(
+	pi: ExtensionAPI,
+	ctx: {
+		ui: { notify: (message: string, type?: "error" | "info" | "warning") => void };
+	},
+	url: string,
+): Promise<void> {
+	try {
+		await openUrlInBrowser(pi, url);
+		ctx.ui.notify(`PiUi: opened ${url}`, "info");
+	} catch (err) {
+		ctx.ui.notify(`PiUi: could not open browser for ${url}: ${String(err)}`, "warning");
+	}
 }
 
 export default function piuiExtension(pi: ExtensionAPI) {
@@ -93,12 +139,7 @@ export default function piuiExtension(pi: ExtensionAPI) {
 			const url = `http://127.0.0.1:${port}`;
 
 			if (await probeServer(url)) {
-				try {
-					await openUrlInBrowser(pi, url);
-					ctx.ui.notify(`PiUi: server already running at ${url}; opened in browser.`, "info");
-				} catch (err) {
-					ctx.ui.notify(`PiUi: server is up at ${url} but could not open browser: ${String(err)}`, "warning");
-				}
+				await openPiUiTab(pi, ctx, url);
 				return;
 			}
 
@@ -146,24 +187,7 @@ export default function piuiExtension(pi: ExtensionAPI) {
 					/Port\s+\d+\s+is\s+not\s+available/i.test(stderrTail);
 
 				if (portBusy) {
-					void (async () => {
-						if (await probeServer(url)) {
-							try {
-								await openUrlInBrowser(pi, url);
-								ctx.ui.notify(`PiUi: port busy; opened existing server at ${url}.`, "info");
-							} catch {
-								ctx.ui.notify(
-									`PiUi: server exited (${code}). Port in use — try ${url} in a browser or set PIUI_PORT. ${hint}`,
-									"error",
-								);
-							}
-							return;
-						}
-						ctx.ui.notify(
-							`PiUi: server exited with code ${code}. Node: ${process.execPath}. Last stderr: ${hint}`,
-							"error",
-						);
-					})();
+					// Main handler polls /api/health and opens the tab (existing server or retry).
 					return;
 				}
 
@@ -186,10 +210,10 @@ export default function piuiExtension(pi: ExtensionAPI) {
 
 			child.unref();
 
-			ctx.ui.notify(
-				`PiUi: starting web UI on ${url}. Wait a few seconds if the browser shows connection refused.`,
-				"info",
-			);
+			ctx.ui.notify(`PiUi: starting web UI on ${url}…`, "info");
+
+			await waitForServerListening(url, child, 25_000, 200);
+			await openPiUiTab(pi, ctx, url);
 		},
 	});
 }

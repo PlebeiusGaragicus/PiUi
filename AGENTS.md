@@ -20,6 +20,6 @@ Guidance for humans and coding agents working on PiUi.
 ## Repository layout
 
 - [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-build.sh`](scripts/postinstall-build.sh).
-- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns or reuses the PiUi server, browser **`open`** / **`xdg-open`** when the URL already responds.
+- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns or reuses the PiUi server, and **always** opens the URL with **`open`** / **`xdg-open`** (after a short **`/api/health`** wait when it had to spawn).
 - [`server/`](server/) — Node server: **`main.ts`** (HTTP + static), **`session.ts`** / **`viewModel.ts`** (JSONL + transcript shaping).
 - [`web/`](web/) — Svelte 5 + Vite frontend.
