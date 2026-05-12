@@ -14,6 +14,11 @@ import streamlit as st
 SESSIONS_ROOT = Path.home() / ".pi/agent/sessions"
 ROOT_DIR_LABEL = "(sessions root)"
 
+# st.chat_message(..., avatar=…) — see https://docs.streamlit.io/develop/api-reference/chat/st.chat_message
+_CHAT_AVATAR_USER = "🧠"
+_CHAT_AVATAR_ASSISTANT = "🤖"
+_CHAT_AVATAR_TOOL = "💻"
+
 
 def rel_under_sessions(path: Path) -> str:
     try:
@@ -199,44 +204,85 @@ def render_tool_result_content(content: Any) -> None:
             )
 
 
-def render_assistant_blocks(blocks: Any) -> None:
+def render_tool_call_block(block: dict[str, Any]) -> None:
+    """Single toolCall block (caller wraps in st.chat_message with tool avatar)."""
+    name = block.get("name") or "tool"
+    tcid = block.get("id") or ""
+    st.markdown(f"**Tool call** · `{name}`" + (f" · `{tcid}`" if tcid else ""))
+    args = block.get("arguments")
+    if isinstance(args, dict):
+        st.code(
+            json.dumps(args, indent=2, ensure_ascii=False),
+            language="json",
+        )
+    else:
+        st.code(
+            json.dumps(block, indent=2, ensure_ascii=False),
+            language="json",
+        )
+
+
+def render_assistant_message_blocks(msg: dict[str, Any]) -> None:
+    """Assistant turns: robot avatar; each toolCall gets its own message with computer avatar."""
+    meta_bits: list[str] = []
+    if isinstance(msg.get("model"), str):
+        meta_bits.append(msg["model"])
+    sr = msg.get("stopReason")
+    if sr is not None:
+        meta_bits.append(f"stop: {sr}")
+    meta_line = " · ".join(meta_bits) if meta_bits else None
+    meta_shown = False
+
+    def maybe_caption() -> None:
+        nonlocal meta_shown
+        if meta_line and not meta_shown:
+            st.caption(meta_line)
+            meta_shown = True
+
+    blocks = msg.get("content")
     if not isinstance(blocks, list):
-        st.markdown(str(blocks))
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
+            maybe_caption()
+            st.markdown(str(blocks))
         return
-    for block in blocks:
-        if not isinstance(block, dict):
-            st.text(str(block))
+
+    i = 0
+    n = len(blocks)
+    while i < n:
+        b = blocks[i]
+        if isinstance(b, dict) and b.get("type") == "toolCall":
+            with st.chat_message("assistant", avatar=_CHAT_AVATAR_TOOL):
+                maybe_caption()
+                render_tool_call_block(b)
+            i += 1
             continue
-        bt = block.get("type")
-        if bt == "text" and isinstance(block.get("text"), str):
-            st.markdown(block["text"])
-        elif bt == "thinking" and isinstance(block.get("thinking"), str):
-            with st.expander("Thinking", expanded=False):
-                st.markdown(block["thinking"])
-        elif bt == "toolCall":
-            name = block.get("name") or "tool"
-            tcid = block.get("id") or ""
-            st.markdown(f"**Tool call** · `{name}`" + (f" · `{tcid}`" if tcid else ""))
-            args = block.get("arguments")
-            if isinstance(args, dict):
-                st.code(
-                    json.dumps(args, indent=2, ensure_ascii=False),
-                    language="json",
-                )
-            else:
-                st.code(
-                    json.dumps(block, indent=2, ensure_ascii=False),
-                    language="json",
-                )
-        else:
-            with st.expander(f"Block ({bt})", expanded=False):
-                st.json(block)
+
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
+            maybe_caption()
+            while i < n:
+                b2 = blocks[i]
+                if isinstance(b2, dict) and b2.get("type") == "toolCall":
+                    break
+                if not isinstance(b2, dict):
+                    st.text(str(b2))
+                    i += 1
+                    continue
+                bt = b2.get("type")
+                if bt == "text" and isinstance(b2.get("text"), str):
+                    st.markdown(b2["text"])
+                elif bt == "thinking" and isinstance(b2.get("thinking"), str):
+                    with st.expander("Thinking", expanded=False):
+                        st.markdown(b2["thinking"])
+                else:
+                    with st.expander(f"Block ({bt})", expanded=False):
+                        st.json(b2)
+                i += 1
 
 
 def render_message_entry(entry: dict[str, Any]) -> None:
     msg = entry.get("message")
     if not isinstance(msg, dict):
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
             st.caption("Malformed message entry")
             st.json(entry)
         return
@@ -244,25 +290,16 @@ def render_message_entry(entry: dict[str, Any]) -> None:
     role = msg.get("role")
 
     if role == "user":
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar=_CHAT_AVATAR_USER):
             render_user_content(msg.get("content"))
         return
 
     if role == "assistant":
-        with st.chat_message("assistant"):
-            meta_bits: list[str] = []
-            if isinstance(msg.get("model"), str):
-                meta_bits.append(msg["model"])
-            sr = msg.get("stopReason")
-            if sr is not None:
-                meta_bits.append(f"stop: {sr}")
-            if meta_bits:
-                st.caption(" · ".join(meta_bits))
-            render_assistant_blocks(msg.get("content"))
+        render_assistant_message_blocks(msg)
         return
 
     if role == "toolResult":
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_TOOL):
             err = msg.get("isError")
             title = msg.get("toolName") or "tool"
             tid = msg.get("toolCallId") or ""
@@ -281,7 +318,7 @@ def render_message_entry(entry: dict[str, Any]) -> None:
         return
 
     if role == "bashExecution":
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_TOOL):
             cmd = msg.get("command") or ""
             st.markdown(f"**Bash** `{cmd}`")
             out = msg.get("output")
@@ -294,14 +331,14 @@ def render_message_entry(entry: dict[str, Any]) -> None:
         return
 
     if role == "custom":
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
             ct = msg.get("customType") or "custom"
             st.caption(f"Extension · {ct}")
             render_user_content(msg.get("content"))
         return
 
     if role in ("branchSummary", "compactionSummary"):
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
             summary = msg.get("summary")
             if isinstance(summary, str):
                 st.markdown(summary)
@@ -309,7 +346,7 @@ def render_message_entry(entry: dict[str, Any]) -> None:
                 st.json(msg)
         return
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
         st.caption(f"role: {role}")
         st.json(msg)
 
@@ -348,7 +385,7 @@ def render_transcript(path: Path) -> None:
         if et == "message":
             render_message_entry(entry)
         elif et == "custom_message":
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
                 ct = entry.get("customType") or "custom_message"
                 st.caption(f"Extension message · {ct}")
                 render_user_content(entry.get("content"))
