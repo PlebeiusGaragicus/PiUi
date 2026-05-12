@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.5] - 2026-05-12
+
+### Changed
+
+- [`streamlit_app/app.py`](streamlit_app/app.py): **Redesigned** the Streamlit UI. **Sidebar** lists session directories (Pi cwd buckets under `~/.pi/agent/sessions`) with **`st.radio`** (no dropdown). **Main** lists `.jsonl` files in the selected directory with **`st.radio`**, then shows a **chat-style transcript** (`st.chat_message`) for user and assistant turns, **expanders** for thinking and tool calls, and blocks for **tool results** and other roles. Session ordering follows the **parent/child tree** when possible (latest leaf → root), with file-order fallback. **Removed** all **`st.dataframe`** / table previews.
+
 ## [0.1.4] - 2026-05-12
 
 ### Added

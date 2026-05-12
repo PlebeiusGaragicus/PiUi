@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import json
-from collections import Counter
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
 SESSIONS_ROOT = Path.home() / ".pi/agent/sessions"
-
-
-def discover_jsonl_files() -> list[Path]:
-    if not SESSIONS_ROOT.is_dir():
-        return []
-    found = list(SESSIONS_ROOT.rglob("*.jsonl"))
-    found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return found
+ROOT_DIR_LABEL = "(sessions root)"
 
 
 def rel_under_sessions(path: Path) -> str:
@@ -27,13 +22,34 @@ def rel_under_sessions(path: Path) -> str:
         return str(path)
 
 
-def summarize_file(path: Path) -> tuple[list[dict], Counter[str], Counter[str], int]:
-    """Returns rows for preview table, type counts, role counts, parse_errors."""
-    preview_rows: list[dict] = []
-    types: Counter[str] = Counter()
-    roles: Counter[str] = Counter()
-    parse_errors = 0
+def discover_jsonl_by_directory() -> dict[str, list[Path]]:
+    """Group *.jsonl paths by first segment under SESSIONS_ROOT (Pi cwd bucket)."""
+    if not SESSIONS_ROOT.is_dir():
+        return {}
+    buckets: dict[str, list[Path]] = {}
+    for p in SESSIONS_ROOT.rglob("*.jsonl"):
+        rel = Path(rel_under_sessions(p))
+        parts = rel.parts
+        if not parts:
+            continue
+        key = ROOT_DIR_LABEL if len(parts) == 1 else parts[0]
+        buckets.setdefault(key, []).append(p)
+    for paths in buckets.values():
+        paths.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return buckets
 
+
+def format_file_radio_label(p: Path) -> str:
+    stt = p.stat()
+    mtime = datetime.fromtimestamp(stt.st_mtime).strftime("%Y-%m-%d %H:%M")
+    kb = round(stt.st_size / 1024, 1)
+    return f"{p.name} · {mtime} · {kb} KiB"
+
+
+def load_jsonl_objects(path: Path) -> tuple[list[tuple[int, dict[str, Any] | None]], int]:
+    """Return (line_no, parsed_obj or None on error), parse_error_count."""
+    rows: list[tuple[int, dict[str, Any] | None]] = []
+    errors = 0
     with path.open(encoding="utf-8", errors="replace") as f:
         for line_no, line in enumerate(f, start=1):
             line = line.strip()
@@ -42,38 +58,266 @@ def summarize_file(path: Path) -> tuple[list[dict], Counter[str], Counter[str], 
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
-                parse_errors += 1
-                if len(preview_rows) < 200:
-                    preview_rows.append(
-                        {
-                            "line": line_no,
-                            "kind": "parse_error",
-                            "detail": line[:200],
-                        }
-                    )
+                errors += 1
+                rows.append((line_no, None))
                 continue
-
             if isinstance(obj, dict):
-                t = obj.get("type")
-                if t is not None:
-                    types[str(t)] += 1
-                msg = obj.get("message")
-                if isinstance(msg, dict) and "role" in msg:
-                    roles[str(msg["role"])] += 1
+                rows.append((line_no, obj))
+            else:
+                errors += 1
+                rows.append((line_no, None))
+    return rows, errors
 
-            if len(preview_rows) < 200:
-                kind = obj.get("type") if isinstance(obj, dict) else type(obj).__name__
-                preview_rows.append({"line": line_no, "kind": kind, "detail": json.dumps(obj)[:500]})
 
-    return preview_rows, types, roles, parse_errors
+def entry_sort_key(obj: dict[str, Any]) -> float:
+    """Prefer entry ISO timestamp; else message ms timestamp."""
+    ts = obj.get("timestamp")
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    msg = obj.get("message")
+    if isinstance(msg, dict):
+        mt = msg.get("timestamp")
+        if isinstance(mt, (int, float)):
+            return float(mt) / 1000.0
+    return 0.0
+
+
+def ordered_entries_for_display(
+    parsed: list[tuple[int, dict[str, Any] | None]],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """
+    Order session entries along Pi's parent/child tree: pick the leaf with the latest
+    timestamp, walk parentId to root, reverse to chronological. If that fails, use
+    file order for dict lines only (message-focused fallback).
+    """
+    objects = [o for _, o in parsed if isinstance(o, dict)]
+    # Exclude session header from id graph — it has an id but is not a tree node.
+    by_id: dict[str, dict[str, Any]] = {}
+    for obj in objects:
+        if obj.get("type") == "session":
+            continue
+        oid = obj.get("id")
+        if isinstance(oid, str) and oid:
+            by_id[oid] = obj
+
+    children: dict[str, list[str]] = {}
+    for obj in by_id.values():
+        pid = obj.get("parentId")
+        if isinstance(pid, str) and pid in by_id:
+            children.setdefault(pid, []).append(str(obj["id"]))
+
+    leaves = [oid for oid in by_id if oid not in children]
+    if not leaves:
+        return (
+            [o for o in objects if o.get("type") != "session"],
+            "No tree ids found; showing entries in file order.",
+        )
+
+    leaf_id = max(leaves, key=lambda i: entry_sort_key(by_id[i]))
+    chain: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = by_id.get(leaf_id)
+    seen: set[str] = set()
+    while cur is not None:
+        cid = cur.get("id")
+        if isinstance(cid, str):
+            if cid in seen:
+                break
+            seen.add(cid)
+        chain.append(cur)
+        pid = cur.get("parentId")
+        if not isinstance(pid, str) or pid not in by_id:
+            break
+        cur = by_id[pid]
+    chain.reverse()
+    # Drop session header line from spine if it slipped in (normally no parentId loop)
+    chain = [e for e in chain if e.get("type") != "session"]
+    return chain, None
+
+
+def fallback_entry_order(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [o for o in objects if o.get("type") != "session"]
+
+
+def render_user_content(content: Any) -> None:
+    if isinstance(content, str):
+        st.markdown(content)
+        return
+    if not isinstance(content, list):
+        st.json(content)
+        return
+    for block in content:
+        if not isinstance(block, dict):
+            st.text(str(block))
+            continue
+        bt = block.get("type")
+        if bt == "text" and isinstance(block.get("text"), str):
+            st.markdown(block["text"])
+        elif bt == "image" and isinstance(block.get("data"), str):
+            mime = block.get("mimeType") or "image/png"
+            try:
+                raw = base64.b64decode(block["data"], validate=False)
+                st.image(BytesIO(raw), caption=mime)
+            except (ValueError, OSError):
+                st.caption("(image decode failed)")
+        else:
+            with st.expander("Content block", expanded=False):
+                st.json(block)
+
+
+def render_assistant_blocks(blocks: Any) -> None:
+    if not isinstance(blocks, list):
+        st.markdown(str(blocks))
+        return
+    for block in blocks:
+        if not isinstance(block, dict):
+            st.text(str(block))
+            continue
+        bt = block.get("type")
+        if bt == "text" and isinstance(block.get("text"), str):
+            st.markdown(block["text"])
+        elif bt == "thinking" and isinstance(block.get("thinking"), str):
+            with st.expander("Thinking", expanded=False):
+                st.markdown(block["thinking"])
+        elif bt == "toolCall":
+            name = block.get("name") or "tool"
+            tcid = block.get("id") or ""
+            title = f"Tool call: {name}" + (f" (`{tcid}`)" if tcid else "")
+            with st.expander(title, expanded=False):
+                if isinstance(block.get("arguments"), dict):
+                    st.json(block["arguments"])
+                else:
+                    st.json(block)
+        else:
+            with st.expander(f"Block ({bt})", expanded=False):
+                st.json(block)
+
+
+def render_message_entry(entry: dict[str, Any]) -> None:
+    msg = entry.get("message")
+    if not isinstance(msg, dict):
+        with st.chat_message("assistant"):
+            st.caption("Malformed message entry")
+            st.json(entry)
+        return
+
+    role = msg.get("role")
+
+    if role == "user":
+        with st.chat_message("user"):
+            render_user_content(msg.get("content"))
+        return
+
+    if role == "assistant":
+        with st.chat_message("assistant"):
+            meta_bits: list[str] = []
+            if isinstance(msg.get("model"), str):
+                meta_bits.append(msg["model"])
+            sr = msg.get("stopReason")
+            if sr is not None:
+                meta_bits.append(f"stop: {sr}")
+            if meta_bits:
+                st.caption(" · ".join(meta_bits))
+            render_assistant_blocks(msg.get("content"))
+        return
+
+    if role == "toolResult":
+        with st.chat_message("assistant"):
+            err = msg.get("isError")
+            title = msg.get("toolName") or "tool"
+            tid = msg.get("toolCallId") or ""
+            st.markdown(f"**Tool result** · `{title}`" + (f" · `{tid}`" if tid else ""))
+            if err:
+                st.caption("Error")
+            render_user_content(msg.get("content"))
+            details = msg.get("details")
+            if details is not None:
+                with st.expander("Details", expanded=False):
+                    st.json(details)
+        return
+
+    if role == "bashExecution":
+        with st.chat_message("assistant"):
+            cmd = msg.get("command") or ""
+            st.markdown(f"**Bash** `{cmd}`")
+            out = msg.get("output")
+            if isinstance(out, str) and out.strip():
+                with st.expander("Output", expanded=False):
+                    st.code(out, language="text")
+            ec = msg.get("exitCode")
+            if ec is not None:
+                st.caption(f"exit {ec}")
+        return
+
+    if role == "custom":
+        with st.chat_message("assistant"):
+            ct = msg.get("customType") or "custom"
+            st.caption(f"Extension · {ct}")
+            render_user_content(msg.get("content"))
+        return
+
+    if role in ("branchSummary", "compactionSummary"):
+        with st.chat_message("assistant"):
+            summary = msg.get("summary")
+            if isinstance(summary, str):
+                st.markdown(summary)
+            else:
+                st.json(msg)
+        return
+
+    with st.chat_message("assistant"):
+        st.caption(f"role: {role}")
+        st.json(msg)
+
+
+def render_non_message_entry(entry: dict[str, Any]) -> None:
+    et = entry.get("type", "?")
+    st.caption(f"Entry · {et}")
+    with st.expander("Raw entry", expanded=False):
+        st.json(entry)
+
+
+def render_session_header(header: dict[str, Any]) -> None:
+    with st.expander("Session metadata", expanded=False):
+        st.json(header)
+
+
+def render_transcript(path: Path) -> None:
+    parsed, parse_errors = load_jsonl_objects(path)
+    if parse_errors:
+        st.warning(f"{parse_errors} line(s) could not be parsed as JSON.")
+
+    objects = [o for _, o in parsed if isinstance(o, dict)]
+    header = objects[0] if objects and objects[0].get("type") == "session" else None
+    if header:
+        render_session_header(header)
+
+    spine, note = ordered_entries_for_display(parsed)
+    if note:
+        st.caption(note)
+
+    if not spine:
+        spine = fallback_entry_order(objects[1:] if header else objects)
+
+    for entry in spine:
+        et = entry.get("type")
+        if et == "message":
+            render_message_entry(entry)
+        elif et == "custom_message":
+            with st.chat_message("assistant"):
+                ct = entry.get("customType") or "custom_message"
+                st.caption(f"Extension message · {ct}")
+                render_user_content(entry.get("content"))
+        else:
+            render_non_message_entry(entry)
 
 
 def main() -> None:
     st.set_page_config(page_title="PiUi", layout="wide")
     st.title("PiUi")
     st.caption(f"Sessions under `{SESSIONS_ROOT}`")
-
-    files = discover_jsonl_files()
 
     if not SESSIONS_ROOT.is_dir():
         st.warning(
@@ -82,57 +326,54 @@ def main() -> None:
         )
         return
 
-    if not files:
+    buckets = discover_jsonl_by_directory()
+    if not buckets:
         st.info("No `.jsonl` session files found. Use Pi in a project to generate sessions.")
         return
 
-    rows_meta = []
-    for p in files:
-        stt = p.stat()
-        rows_meta.append(
-            {
-                "relative_path": rel_under_sessions(p),
-                "mtime": datetime.fromtimestamp(stt.st_mtime).isoformat(timespec="seconds"),
-                "size_kb": round(stt.st_size / 1024, 2),
-                "_path": p,
-            }
-        )
+    dir_names = sorted(buckets.keys(), key=lambda k: (k != ROOT_DIR_LABEL, k.lower()))
 
-    st.sidebar.header("Session files")
-    labels = [r["relative_path"] for r in rows_meta]
-    choice = st.sidebar.selectbox("Select a session", options=labels, index=0)
-    chosen = next(r for r in rows_meta if r["relative_path"] == choice)
-    path: Path = chosen["_path"]
+    if "piui_dir" not in st.session_state or st.session_state["piui_dir"] not in buckets:
+        st.session_state["piui_dir"] = dir_names[0]
 
-    st.subheader("All sessions")
-    st.dataframe(
-        [{k: v for k, v in r.items() if k != "_path"} for r in rows_meta],
-        use_container_width=True,
-        hide_index=True,
+    st.sidebar.header("Directory")
+    dir_choice = st.sidebar.radio(
+        "Working directory (Pi cwd bucket)",
+        options=dir_names,
+        index=dir_names.index(st.session_state["piui_dir"]),
+        label_visibility="collapsed",
     )
+    st.session_state["piui_dir"] = dir_choice
+
+    files = buckets[dir_choice]
+    labels = [format_file_radio_label(p) for p in files]
+    label_to_path = dict(zip(labels, files))
+
+    if st.session_state.get("_piui_dir_last") != dir_choice:
+        st.session_state["_piui_dir_last"] = dir_choice
+        st.session_state.pop("piui_file_label", None)
+
+    st.subheader("Session file")
+    if len(labels) == 1:
+        chosen_label = labels[0]
+        st.caption(chosen_label)
+    else:
+        default_label = st.session_state.get("piui_file_label", labels[0])
+        if default_label not in label_to_path:
+            default_label = labels[0]
+        idx = labels.index(default_label)
+        chosen_label = st.radio(
+            "Open a session",
+            options=labels,
+            index=idx,
+            label_visibility="collapsed",
+        )
+    st.session_state["piui_file_label"] = chosen_label
+    selected_path = label_to_path[chosen_label]
 
     st.divider()
-    st.subheader(f"Selected: `{choice}`")
-
-    preview_rows, types, roles, parse_errors = summarize_file(path)
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Preview rows (max 200)", len(preview_rows))
-    with c2:
-        st.metric("JSON parse errors (in file)", parse_errors)
-    with c3:
-        st.metric("Distinct entry types", len(types))
-
-    if types:
-        st.write("**Entry `type` counts**")
-        st.json(dict(types.most_common()))
-    if roles:
-        st.write("**Message `role` counts** (when present)")
-        st.json(dict(roles.most_common()))
-
-    st.write("**First lines (preview)**")
-    st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+    st.subheader("Transcript")
+    render_transcript(selected_path)
 
 
 main()
