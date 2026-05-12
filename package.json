@@ -1,6 +1,6 @@
 {
 	"name": "piui",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"description": "Pi extension: /piui launches Streamlit to browse ~/.pi/agent/sessions",
 	"keywords": ["pi-package"],
 	"license": "MIT",

@@ -52,7 +52,11 @@ If you use **`npm install --ignore-scripts`** or postinstall failed, run **`npm 
 
 1. Reload Pi resources if needed: **`/reload`** (or restart Pi).
 2. Run **`/piui`** in the Pi TUI.
-3. Open the URL from the notification (default **`http://127.0.0.1:8502`**).
+3. Open the URL from the notification (default **`http://127.0.0.1:8502`**), unless PiUi already opened your browser (see below).
+
+**Streamlit UI:** PiUi starts Streamlit with **`--server.headless false`** on purpose so Streamlit can **open your default browser** when the server comes up (first **`/piui`** after a fresh start). Do not change that flag to **`true`** in the extension unless you redesign UX (e.g. always rely on **`open`** / **`xdg-open`** and document it).
+
+**Lifecycle:** When you **quit Pi**, PiUi sends **SIGTERM** to the Streamlit process it started so the port is freed. Running **`/piui`** again while Streamlit is **still up** does not start a second server; PiUi **opens the same URL** in your default browser (typically a new tab). Linux needs **`xdg-open`** on `PATH` for that step.
 
 ### Port
 
@@ -67,14 +71,15 @@ Set **`PIUI_PORT`** before starting Pi (or in your shell profile) to change the 
 | Could not run Python interpreter / `ENOENT` | Install **`python3`** where Pi/npm can see it, or fix **`venv`** with **`npm install`** in the package root. |
 | **`npm install` / postinstall errors** | Read the log: missing **`python3`**, pip/network blocked, or **`requirements.txt`** issue. Fix and re-run **`npm install`** in the Pi-managed clone. |
 | Nothing opens / no stderr toast | Run **`<package>/venv/bin/python -m pip show streamlit`** from a terminal using the same paths. |
-| Port already in use | Set **`PIUI_PORT`** to a free port and run **`/piui`** again. |
+| Port already in use | Often a leftover Streamlit before this change; quit Pi (PiUi now stops Streamlit on quit) or set **`PIUI_PORT`**. If something else is already serving PiUi’s URL, **`/piui`** may open that tab instead of starting a new server. |
 | Empty session list | Confirm Pi has created sessions under **`~/.pi/agent/sessions/`** (nested **`*.jsonl`** files). |
 | Extension not listed | Confirm **`pi install`** succeeded, run **`/reload`**, and check **`pi list`** / settings **`packages`**. |
 
 ## Layout
 
+- [`AGENTS.md`](AGENTS.md) — conventions for contributors / agents (including Streamlit **headless** flag).
 - [`package.json`](package.json) — **`scripts.postinstall`** → [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh).
-- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawns detached **`python -m streamlit run …`** (prefers **`venv/bin/python`**).
+- [`extensions/piui.ts`](extensions/piui.ts) — registers **`/piui`**, spawn or reuse Streamlit, stop on Pi **quit**, open browser via **`open`** / **`xdg-open`** when the server is already listening.
 - [`streamlit_app/app.py`](streamlit_app/app.py) — lists and previews session JSONL files.
 
 ## License

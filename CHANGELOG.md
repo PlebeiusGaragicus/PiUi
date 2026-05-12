@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.4] - 2026-05-12
+
+### Added
+
+- **`/piui`**: if Streamlit is already listening on the configured URL, **open the browser** instead of spawning a second server.
+- **Port busy** recovery: when Streamlit exits because the port is in use but something responds at that URL, **open the existing server** in the browser when possible.
+
+### Changed
+
+- **`session_shutdown` (`reason: "quit"`)**: **SIGTERM** the detached Streamlit process PiUi spawned so servers do not outlive Pi.
+
+### Documentation
+
+- [`README.md`](README.md): quit lifecycle, second **`/piui`**, browser opener (**`xdg-open`** on Linux).
+
 ## [0.1.3] - 2026-05-12
 
 ### Changed
