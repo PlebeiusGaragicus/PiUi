@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-05-12
+
+### Changed
+
+- **Streamlit UI removed** in favor of a **Svelte 5** frontend and a **Node** server (`dist/piui-server.mjs`) that serves the built UI plus **`/api/*`** for discovery, transcripts, and deletes.
+- **`npm postinstall`** now runs **`scripts/postinstall-build.sh`** (which runs **`npm run build`**) instead of creating a Python **`venv/`**.
+- **`/piui`** spawns **`node dist/piui-server.mjs`** (see [`extensions/piui.ts`](extensions/piui.ts)).
+
+### Added
+
+- [`FEATURES.md`](FEATURES.md): feature inventory / parity checklist.
+- [`server/`](server/) and [`web/`](web/) sources for the new stack.
+
 ## [0.1.8] - 2026-05-12
 
 ### Fixed

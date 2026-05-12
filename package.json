@@ -1,16 +1,40 @@
 {
 	"name": "piui",
-	"version": "0.1.8",
-	"description": "Pi extension: /piui launches Streamlit to browse ~/.pi/agent/sessions",
+	"version": "0.2.0",
+	"description": "Pi extension: /piui launches a local web UI to browse ~/.pi/agent/sessions",
 	"keywords": ["pi-package"],
 	"license": "MIT",
+	"type": "module",
 	"scripts": {
-		"postinstall": "bash scripts/postinstall-venv.sh"
+		"postinstall": "bash scripts/postinstall-build.sh",
+		"build": "npm run build:web && npm run build:server",
+		"build:web": "vite build -c web/vite.config.ts",
+		"build:server": "node esbuild.config.mjs",
+		"start": "node dist/piui-server.mjs",
+		"dev": "concurrently -k \"npm run dev:api\" \"npm run dev:web\"",
+		"dev:api": "PIUI_DEV=1 tsx watch server/main.ts",
+		"dev:web": "vite dev -c web/vite.config.ts",
+		"test": "node --import tsx --test server/*.test.ts"
 	},
 	"pi": {
 		"extensions": ["./extensions/piui.ts"]
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"
+	},
+	"dependencies": {
+		"@hono/node-server": "^1.13.1",
+		"@sveltejs/vite-plugin-svelte": "^5.0.3",
+		"hono": "^4.7.4",
+		"marked": "^15.0.6",
+		"svelte": "^5.19.0",
+		"typescript": "^5.7.3",
+		"vite": "^6.0.11"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.5",
+		"concurrently": "^9.1.2",
+		"esbuild": "^0.24.2",
+		"tsx": "^4.19.2"
 	}
 }
