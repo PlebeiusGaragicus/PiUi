@@ -15,8 +15,8 @@ SESSIONS_ROOT = Path.home() / ".pi/agent/sessions"
 ROOT_DIR_LABEL = "(sessions root)"
 
 # st.chat_message(..., avatar=…) — see https://docs.streamlit.io/develop/api-reference/chat/st.chat_message
-_CHAT_AVATAR_USER = "🧠"
-_CHAT_AVATAR_ASSISTANT = "🤖"
+_CHAT_AVATAR_USER = "🧑🏻‍💻"
+_CHAT_AVATAR_ASSISTANT = "🧠"
 _CHAT_AVATAR_TOOL = "💻"
 
 
