@@ -64,7 +64,7 @@ export default function piuiExtension(pi: ExtensionAPI) {
 					"run",
 					appPath,
 					"--server.headless",
-					"true",
+					"false",
 					"--server.address",
 					"127.0.0.1",
 					"--server.port",
