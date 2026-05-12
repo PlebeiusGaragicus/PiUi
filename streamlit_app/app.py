@@ -167,6 +167,38 @@ def render_user_content(content: Any) -> None:
                 st.json(block)
 
 
+def render_tool_result_content(content: Any) -> None:
+    """Show tool output as raw text in code blocks (no markdown / st.write)."""
+    if isinstance(content, str):
+        st.code(content, language="text")
+        return
+    if not isinstance(content, list):
+        st.code(
+            json.dumps(content, indent=2, ensure_ascii=False),
+            language="json",
+        )
+        return
+    for block in content:
+        if not isinstance(block, dict):
+            st.code(str(block), language="text")
+            continue
+        bt = block.get("type")
+        if bt == "text" and isinstance(block.get("text"), str):
+            st.code(block["text"], language="text")
+        elif bt == "image" and isinstance(block.get("data"), str):
+            mime = block.get("mimeType") or "image/png"
+            try:
+                raw = base64.b64decode(block["data"], validate=False)
+                st.image(BytesIO(raw), caption=mime)
+            except (ValueError, OSError):
+                st.caption("(image decode failed)")
+        else:
+            st.code(
+                json.dumps(block, indent=2, ensure_ascii=False),
+                language="json",
+            )
+
+
 def render_assistant_blocks(blocks: Any) -> None:
     if not isinstance(blocks, list):
         st.markdown(str(blocks))
@@ -184,12 +216,18 @@ def render_assistant_blocks(blocks: Any) -> None:
         elif bt == "toolCall":
             name = block.get("name") or "tool"
             tcid = block.get("id") or ""
-            title = f"Tool call: {name}" + (f" (`{tcid}`)" if tcid else "")
-            with st.expander(title, expanded=False):
-                if isinstance(block.get("arguments"), dict):
-                    st.json(block["arguments"])
-                else:
-                    st.json(block)
+            st.markdown(f"**Tool call** · `{name}`" + (f" · `{tcid}`" if tcid else ""))
+            args = block.get("arguments")
+            if isinstance(args, dict):
+                st.code(
+                    json.dumps(args, indent=2, ensure_ascii=False),
+                    language="json",
+                )
+            else:
+                st.code(
+                    json.dumps(block, indent=2, ensure_ascii=False),
+                    language="json",
+                )
         else:
             with st.expander(f"Block ({bt})", expanded=False):
                 st.json(block)
@@ -228,14 +266,18 @@ def render_message_entry(entry: dict[str, Any]) -> None:
             err = msg.get("isError")
             title = msg.get("toolName") or "tool"
             tid = msg.get("toolCallId") or ""
-            st.markdown(f"**Tool result** · `{title}`" + (f" · `{tid}`" if tid else ""))
+            bits = [title]
+            if tid:
+                bits.append(tid)
             if err:
-                st.caption("Error")
-            render_user_content(msg.get("content"))
-            details = msg.get("details")
-            if details is not None:
-                with st.expander("Details", expanded=False):
-                    st.json(details)
+                bits.append("error")
+            expander_label = "Tool result · " + " · ".join(bits)
+            with st.expander(expander_label, expanded=False):
+                render_tool_result_content(msg.get("content"))
+                details = msg.get("details")
+                if details is not None:
+                    with st.expander("Details", expanded=False):
+                        st.json(details)
         return
 
     if role == "bashExecution":
