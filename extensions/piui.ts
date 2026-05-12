@@ -18,9 +18,9 @@ function defaultPort(): string {
 	return Number.isFinite(n) && n > 0 && n < 65536 ? String(n) : "8502";
 }
 
-/** Mac/Linux: package .venv/bin/python if present, else python3 on PATH. */
+/** Mac/Linux: package venv/bin/python if present, else python3 on PATH. */
 function resolvePython(root: string): string {
-	const venvPython = join(root, ".venv", "bin", "python");
+	const venvPython = join(root, "venv", "bin", "python");
 	if (existsSync(venvPython)) {
 		return venvPython;
 	}
@@ -35,10 +35,10 @@ export default function piuiExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const venvPython = join(packageRoot, ".venv", "bin", "python");
+			const venvPython = join(packageRoot, "venv", "bin", "python");
 			if (!existsSync(venvPython)) {
 				ctx.ui.notify(
-					`PiUi: no .venv at ${packageRoot}. Run npm install there (or pi update for this package) so postinstall creates .venv.`,
+					`PiUi: no venv at ${packageRoot}. Run npm install there (or pi update for this package) so postinstall creates the venv directory.`,
 					"warning",
 				);
 			}
@@ -100,7 +100,7 @@ export default function piuiExtension(pi: ExtensionAPI) {
 			child.on("error", (err: NodeJS.ErrnoException) => {
 				if (err.code === "ENOENT") {
 					ctx.ui.notify(
-						`PiUi: could not run Python interpreter "${python}". Install python3 on PATH, or ensure .venv exists (npm install in the PiUi package runs postinstall).`,
+						`PiUi: could not run Python interpreter "${python}". Install python3 on PATH, or ensure venv/ exists (npm install in the PiUi package runs postinstall).`,
 						"error",
 					);
 					return;

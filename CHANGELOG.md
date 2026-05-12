@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.3] - 2026-05-12
+
+### Changed
+
+- Package-local Python environment directory is **`venv/`** (not **`.venv/`**): [`extensions/piui.ts`](extensions/piui.ts), [`scripts/postinstall-venv.sh`](scripts/postinstall-venv.sh), and [`README.md`](README.md). **`.venv/`** remains in [`.gitignore`](.gitignore) for older checkouts.
+
 ## [0.1.2] - 2026-05-12
 
 ### Added
