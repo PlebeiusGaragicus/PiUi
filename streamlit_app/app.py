@@ -146,6 +146,55 @@ def fallback_entry_order(objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [o for o in objects if o.get("type") != "session"]
 
 
+def extract_tool_call_ids_from_assistant_message(msg: dict[str, Any]) -> set[str]:
+    """Tool call block `id` values from an assistant message `content` list (Pi toolCallId matches these)."""
+    out: set[str] = set()
+    blocks = msg.get("content")
+    if not isinstance(blocks, list):
+        return out
+    for b in blocks:
+        if isinstance(b, dict) and b.get("type") == "toolCall":
+            tid = b.get("id")
+            if isinstance(tid, str) and tid:
+                out.add(tid)
+    return out
+
+
+def collect_consecutive_tool_results(
+    spine: list[dict[str, Any]],
+    assistant_idx: int,
+    allowed_ids: set[str],
+) -> tuple[dict[str, dict[str, Any]], int]:
+    """
+    Starting at spine[assistant_idx + 1], consume consecutive message entries with
+    role toolResult whose toolCallId is in allowed_ids and not yet seen.
+
+    Stops at the first entry that is not such a toolResult (so non-consecutive results
+    stay on the spine for standalone rendering). Returns (id -> full spine entry, next_idx).
+
+    Partial pairing is allowed: some call ids may have no result yet; duplicate toolCallId
+    in the run stops consumption so the rest can render as orphans.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    j = assistant_idx + 1
+    n = len(spine)
+    while j < n:
+        e = spine[j]
+        if e.get("type") != "message":
+            break
+        inner = e.get("message")
+        if not isinstance(inner, dict) or inner.get("role") != "toolResult":
+            break
+        tcid = inner.get("toolCallId")
+        if not isinstance(tcid, str) or tcid not in allowed_ids:
+            break
+        if tcid in found:
+            break
+        found[tcid] = e
+        j += 1
+    return found, j
+
+
 def render_user_content(content: Any) -> None:
     if isinstance(content, str):
         st.markdown(content)
@@ -204,6 +253,25 @@ def render_tool_result_content(content: Any) -> None:
             )
 
 
+def render_tool_result_message(msg: dict[str, Any]) -> None:
+    """Collapsed tool result body (no st.chat_message wrapper)."""
+    err = msg.get("isError")
+    title = msg.get("toolName") or "tool"
+    tid = msg.get("toolCallId") or ""
+    bits = [title]
+    if tid:
+        bits.append(tid)
+    if err:
+        bits.append("error")
+    expander_label = "Tool result · " + " · ".join(bits)
+    with st.expander(expander_label, expanded=False):
+        render_tool_result_content(msg.get("content"))
+        details = msg.get("details")
+        if details is not None:
+            with st.expander("Details", expanded=False):
+                st.json(details)
+
+
 def render_tool_call_block(block: dict[str, Any]) -> None:
     """Single toolCall block (caller wraps in st.chat_message with tool avatar)."""
     name = block.get("name") or "tool"
@@ -222,8 +290,11 @@ def render_tool_call_block(block: dict[str, Any]) -> None:
         )
 
 
-def render_assistant_message_blocks(msg: dict[str, Any]) -> None:
-    """Assistant turns: robot avatar; each toolCall gets its own message with computer avatar."""
+def render_assistant_message_blocks(
+    msg: dict[str, Any],
+    paired_tool_results: dict[str, dict[str, Any]] | None,
+) -> None:
+    """Assistant turns: robot avatar; each toolCall gets computer avatar, optionally with paired tool result below."""
     meta_bits: list[str] = []
     if isinstance(msg.get("model"), str):
         meta_bits.append(msg["model"])
@@ -254,6 +325,14 @@ def render_assistant_message_blocks(msg: dict[str, Any]) -> None:
             with st.chat_message("assistant", avatar=_CHAT_AVATAR_TOOL):
                 maybe_caption()
                 render_tool_call_block(b)
+                call_id = b.get("id")
+                if isinstance(call_id, str) and paired_tool_results is not None:
+                    if call_id in paired_tool_results:
+                        tres = paired_tool_results[call_id].get("message")
+                        if isinstance(tres, dict):
+                            render_tool_result_message(tres)
+                    else:
+                        st.caption("No matching tool result in this spine segment")
             i += 1
             continue
 
@@ -279,7 +358,11 @@ def render_assistant_message_blocks(msg: dict[str, Any]) -> None:
                 i += 1
 
 
-def render_message_entry(entry: dict[str, Any]) -> None:
+def render_message_entry(
+    entry: dict[str, Any],
+    *,
+    paired_tool_results: dict[str, dict[str, Any]] | None = None,
+) -> None:
     msg = entry.get("message")
     if not isinstance(msg, dict):
         with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
@@ -295,26 +378,12 @@ def render_message_entry(entry: dict[str, Any]) -> None:
         return
 
     if role == "assistant":
-        render_assistant_message_blocks(msg)
+        render_assistant_message_blocks(msg, paired_tool_results)
         return
 
     if role == "toolResult":
         with st.chat_message("assistant", avatar=_CHAT_AVATAR_TOOL):
-            err = msg.get("isError")
-            title = msg.get("toolName") or "tool"
-            tid = msg.get("toolCallId") or ""
-            bits = [title]
-            if tid:
-                bits.append(tid)
-            if err:
-                bits.append("error")
-            expander_label = "Tool result · " + " · ".join(bits)
-            with st.expander(expander_label, expanded=False):
-                render_tool_result_content(msg.get("content"))
-                details = msg.get("details")
-                if details is not None:
-                    with st.expander("Details", expanded=False):
-                        st.json(details)
+            render_tool_result_message(msg)
         return
 
     if role == "bashExecution":
@@ -380,17 +449,33 @@ def render_transcript(path: Path) -> None:
     if not spine:
         spine = fallback_entry_order(objects[1:] if header else objects)
 
-    for entry in spine:
+    idx = 0
+    while idx < len(spine):
+        entry = spine[idx]
         et = entry.get("type")
         if et == "message":
-            render_message_entry(entry)
+            inner = entry.get("message")
+            if isinstance(inner, dict) and inner.get("role") == "assistant":
+                allowed = extract_tool_call_ids_from_assistant_message(inner)
+                if allowed:
+                    paired, next_idx = collect_consecutive_tool_results(spine, idx, allowed)
+                    render_message_entry(entry, paired_tool_results=paired)
+                    idx = next_idx
+                else:
+                    render_message_entry(entry, paired_tool_results=None)
+                    idx += 1
+            else:
+                render_message_entry(entry, paired_tool_results=None)
+                idx += 1
         elif et == "custom_message":
             with st.chat_message("assistant", avatar=_CHAT_AVATAR_ASSISTANT):
                 ct = entry.get("customType") or "custom_message"
                 st.caption(f"Extension message · {ct}")
                 render_user_content(entry.get("content"))
+            idx += 1
         else:
             render_non_message_entry(entry)
+            idx += 1
 
 
 def main() -> None:

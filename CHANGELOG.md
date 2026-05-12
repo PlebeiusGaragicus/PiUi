@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.6] - 2026-05-12
+
+### Changed
+
+- [`streamlit_app/app.py`](streamlit_app/app.py): **`st.chat_message` avatars** — user (brain), assistant (robot), tool / bash (computer), per [Streamlit chat_message](https://docs.streamlit.io/develop/api-reference/chat/st.chat_message).
+- **Tool calls** shown inline as formatted JSON (no expander); **tool results** (`read`, etc.) rendered as **raw text in `st.code`**, not markdown.
+- **Tool call + tool result pairing**: after each assistant message, consecutive spine lines with `role: toolResult` matching `toolCallId` are merged into the **same computer chat bubble** as the corresponding tool call; the transcript loop **skips** consumed lines so orphans still render standalone.
+
 ## [0.1.5] - 2026-05-12
 
 ### Changed
