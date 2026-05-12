@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.8] - 2026-05-12
+
+### Fixed
+
+- [`streamlit_app/app.py`](streamlit_app/app.py): **Directory and session file buttons** now use **`on_click`** callbacks to update **`st.session_state`** so Streamlit applies **`type="primary"`** / **`secondary`** on the **same** rerun as the click. Previously, assigning state only after **`if st.button()`** left the highlight one step behind the selection (often needing a second click to show the correct pressed style).
+
 ## [0.1.7] - 2026-05-12
 
 ### Changed

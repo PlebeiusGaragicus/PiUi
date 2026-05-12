@@ -51,25 +51,37 @@ def format_session_file_label(p: Path) -> str:
     return f"{p.name} · {mtime} · {kb} KiB"
 
 
+def _set_piui_dir(name: str) -> None:
+    """Runs before the rest of the script on the rerun triggered by the directory button."""
+    if st.session_state.get("piui_dir") == name:
+        return
+    st.session_state["piui_dir"] = name
+    st.session_state.pop("piui_file_label", None)
+
+
+def _set_piui_file_label(label: str) -> None:
+    """Runs before the rest of the script on the rerun triggered by a session-file button."""
+    st.session_state["piui_file_label"] = label
+
+
 def render_directory_picker(dir_names: list[str]) -> None:
-    """Sidebar buttons for Pi cwd bucket; updates ``piui_dir`` and clears file choice when it changes."""
+    """Sidebar buttons for Pi cwd bucket; ``on_click`` updates state before widgets resolve ``type``."""
     st.sidebar.caption("Working directory (Pi cwd bucket)")
     for i, name in enumerate(dir_names):
         current = st.session_state["piui_dir"]
         selected = name == current
-        clicked = st.sidebar.button(
+        st.sidebar.button(
             name,
             key=f"piui_dir_{i}",
             type="primary" if selected else "secondary",
             use_container_width=True,
+            on_click=_set_piui_dir,
+            args=(name,),
         )
-        if clicked and name != current:
-            st.session_state["piui_dir"] = name
-            st.session_state.pop("piui_file_label", None)
 
 
 def render_session_file_picker(labels: list[str], dir_key: int) -> None:
-    """Full-width buttons for session ``.jsonl``; updates ``piui_file_label``."""
+    """Full-width buttons for session ``.jsonl``; ``on_click`` updates state before ``type`` is applied."""
     if len(labels) == 1:
         st.session_state["piui_file_label"] = labels[0]
         st.caption(labels[0])
@@ -80,13 +92,14 @@ def render_session_file_picker(labels: list[str], dir_key: int) -> None:
     for i, label in enumerate(labels):
         cur = st.session_state["piui_file_label"]
         selected = label == cur
-        if st.button(
+        st.button(
             label,
             key=f"piui_file_{dir_key}_{i}",
             type="primary" if selected else "secondary",
             use_container_width=True,
-        ):
-            st.session_state["piui_file_label"] = label
+            on_click=_set_piui_file_label,
+            args=(label,),
+        )
 
 
 def load_jsonl_objects(path: Path) -> tuple[list[tuple[int, dict[str, Any] | None]], int]:
