@@ -71,8 +71,9 @@ Set **`PIUI_PORT`** before starting Pi (or in your shell profile) to change the 
 
 | Issue | What to do |
 |--------|------------|
+| Browser **`ERR_CONNECTION_REFUSED`** | Streamlit never bound (often exited on startup). Pi should show a follow-up **error** with exit code and **stderr** (e.g. `No module named streamlit`). Fix deps with the **same** interpreter shown in the first toast: `cd` to PiUi then `<that-python> -m pip install -r requirements.txt`. Wait a few seconds after `/piui` before opening the link. |
 | Could not run Python interpreter / `ENOENT` | Ensure `python3` exists for Pi’s process, or set **`PIUI_PYTHON`**, or add **`.venv/bin/python`** under the PiUi package. |
-| Nothing opens / page fails (no Pi error) | Streamlit may have exited immediately (e.g. **`ModuleNotFoundError: streamlit`**). Install deps with **the same** interpreter: `"$PIUI_PYTHON" -m pip install -r requirements.txt` or `.venv/bin/python -m pip install -r requirements.txt` in the PiUi directory. |
+| Nothing opens / page fails (no Pi error) | If you only see the “starting” toast and no second error, check the same interpreter: `<python> -m pip show streamlit` from a terminal. Install deps with **the same** interpreter PiUi uses: `"$PIUI_PYTHON" -m pip install -r requirements.txt` or `.venv/bin/python -m pip install -r requirements.txt` in the PiUi directory. |
 | Port already in use | Set `PIUI_PORT` to a free port and run `/piui` again. |
 | Empty session list | Confirm Pi has created sessions under `~/.pi/agent/sessions/` (nested `*.jsonl` files). |
 | Extension not listed | Confirm `pi install` succeeded, run `/reload`, and check `pi list` / settings `packages` include this package. |

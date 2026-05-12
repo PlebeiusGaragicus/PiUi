@@ -44,6 +44,14 @@ export default function piuiExtension(pi: ExtensionAPI) {
 			const port = defaultPort();
 			const url = `http://127.0.0.1:${port}`;
 
+			let stderrTail = "";
+			const appendStderr = (chunk: string) => {
+				stderrTail += chunk;
+				if (stderrTail.length > 12_000) {
+					stderrTail = stderrTail.slice(-8000);
+				}
+			};
+
 			const child = spawn(
 				python,
 				[
@@ -52,7 +60,9 @@ export default function piuiExtension(pi: ExtensionAPI) {
 					"run",
 					appPath,
 					"--server.headless",
-					"true",
+					"false",
+					"--server.address",
+					"127.0.0.1",
 					"--server.port",
 					port,
 					"--browser.gatherUsageStats",
@@ -61,13 +71,27 @@ export default function piuiExtension(pi: ExtensionAPI) {
 				{
 					cwd: packageRoot,
 					detached: true,
-					stdio: "ignore",
+					stdio: ["ignore", "ignore", "pipe"],
 					env: {
 						...process.env,
 						PIUI_PORT: port,
 					},
 				},
 			);
+
+			child.stderr?.setEncoding("utf8");
+			child.stderr?.on("data", appendStderr);
+
+			child.on("exit", (code, _signal) => {
+				if (code === 0 || code === null) {
+					return;
+				}
+				const hint = stderrTail.trim().slice(-600) || "(no stderr captured)";
+				ctx.ui.notify(
+					`PiUi: Streamlit exited with code ${code}. Interpreter: ${python}. Last stderr: ${hint}`,
+					"error",
+				);
+			});
 
 			child.on("error", (err: NodeJS.ErrnoException) => {
 				if (err.code === "ENOENT") {
@@ -82,7 +106,10 @@ export default function piuiExtension(pi: ExtensionAPI) {
 
 			child.unref();
 
-			ctx.ui.notify(`PiUi: starting Streamlit on ${url} (port from PIUI_PORT, default 8502)`, "info");
+			ctx.ui.notify(
+				`PiUi: starting Streamlit on ${url} (python: ${python}). Wait a few seconds if the browser shows connection refused.`,
+				"info",
+			);
 		},
 	});
 }
